@@ -3,9 +3,9 @@ const Discussion = {
     currentCommandeId: null,
     currentUser: null,
     messageListener: null,
-    lastMessageCount: 0, // Ho fitandremana ny isan'ny message
-    lastMessageId: null, // Ho fitandremana ny ID message farany
-    originalTitle: '', // Ho fitandremana ny titre originale
+    lastMessageCount: 0,
+    lastMessageId: null,
+    originalTitle: '',
     
     init: async function() {
         this.currentUser = Auth.currentUser;
@@ -15,15 +15,12 @@ const Discussion = {
         this.setupEventListeners();
         this.setupLangToggle();
         
-        // Mangataka permission ho an'ny browser notification (miandry ny interaction amin'ny mobile)
         this.setupNotifications();
         
-        // Manomboka ny Sound module
         if (window.Sound) {
             Sound.init();
         }
         
-        // Fanampiana ho an'ny mobile audio
         this.setupMobileAudio();
     },
     
@@ -34,10 +31,8 @@ const Discussion = {
         
         if (Notification.permission === 'default') {
             if (!isMobile) {
-                // Desktop: mangataka avy hatrany
                 Notification.requestPermission();
             } else {
-                // Mobile: miandry ny mpampiasa mikasika aloha
                 const requestNotificationOnClick = () => {
                     Notification.requestPermission();
                     document.removeEventListener('touchstart', requestNotificationOnClick);
@@ -50,7 +45,6 @@ const Discussion = {
     },
     
     setupMobileAudio: function() {
-        // Ho an'ny mobile dia mila mikasika ny efijery aloha vao afaka milalao son
         const enableAudioOnTouch = () => {
             if (window.Sound && window.Sound.audioContext && window.Sound.audioContext.state === 'suspended') {
                 window.Sound.audioContext.resume().catch(e => console.log('Audio resume error:', e));
@@ -152,14 +146,11 @@ const Discussion = {
         
         this.currentCommandeId = id;
         
-        // Reset ny counter ho an'ity commande ity
         this.lastMessageCount = 0;
         this.lastMessageId = null;
         
-        // Reset ny titre
         document.title = this.originalTitle;
         
-        // Stopper l'ancien listener
         if (this.messageListener) {
             Storage.off('messages');
         }
@@ -171,7 +162,6 @@ const Discussion = {
             titleSpan.innerHTML = `${this.escapeHtml(commande.numero || commande.id)} - ${this.escapeHtml(commande.clientName || 'Client')}`;
         }
         
-        // Mettre en place le real-time listener
         Storage.onMessagesChanged(id, (messages) => {
             this.displayMessages(messages);
         });
@@ -187,10 +177,18 @@ const Discussion = {
         // Jereo raha misy message vaovao
         const currentMessageCount = messages ? messages.length : 0;
         const lastMessage = messages && messages.length > 0 ? messages[messages.length - 1] : null;
-        const isNewMessage = currentMessageCount > this.lastMessageCount && 
-                             this.lastMessageCount > 0 && 
-                             lastMessage && 
-                             lastMessage.id !== this.lastMessageId;
+        
+        // Hahafantarana raha misy message vaovao (tsy ny tena nandefa)
+        let isNewMessage = false;
+        if (currentMessageCount > this.lastMessageCount && this.lastMessageCount > 0 && lastMessage) {
+            // Raha misy message vaovao sy tsy ny tena nandefa
+            if (lastMessage.id !== this.lastMessageId) {
+                isNewMessage = true;
+            }
+        }
+        
+        // Jereo raha teo amin'ny farany ambany ny scroll alohan'ny fanovana
+        const wasAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
         
         if (!messages || messages.length === 0) {
             container.innerHTML = `
@@ -206,13 +204,11 @@ const Discussion = {
             return;
         }
         
-        // Tahiry ny toerana misy ny scroll alohan'ny hanovana
-        const oldScrollHeight = container.scrollHeight;
-        const oldScrollTop = container.scrollTop;
-        const isScrolledToBottom = oldScrollHeight - oldScrollTop - container.clientHeight < 50;
+        // Ataovy milamina araka ny daty (taloha ambony, farany ambany)
+        const sortedMessages = [...messages].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
         
         // Mamorona ny HTML ho an'ny messages
-        container.innerHTML = messages.map(msg => {
+        container.innerHTML = sortedMessages.map(msg => {
             const date = new Date(msg.timestamp);
             const timeStr = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
             const isCurrentUser = msg.expediteur === (this.currentUser?.username || this.currentUser?.name);
@@ -253,12 +249,10 @@ const Discussion = {
         
         // 🔔 MILALAO SON RAHA MISY MESSAGE VAOVAO SY TSY IZY NO NANDEFA
         if (isNewMessage && lastMessage && lastMessage.expediteur !== (this.currentUser?.username || this.currentUser?.name)) {
-            // Milalao son
             if (window.Sound && Sound.playNotification) {
                 Sound.playNotification();
             }
             
-            // Vibration ho an'ny mobile
             const isMobile = /Android|webOS|iPhone|iPad|iPod/i.test(navigator.userAgent);
             if (isMobile && 'vibrate' in navigator) {
                 const vibrationEnabled = localStorage.getItem('vibration_notification') !== 'false';
@@ -267,7 +261,6 @@ const Discussion = {
                 }
             }
             
-            // Mampiseho notification browser raha tsy ao amin'ny onglet ilay pejy
             if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
                 const messagePreview = lastMessage.message ? lastMessage.message.substring(0, 50) : (lastMessage.fichier ? '📎 Fichier envoyé' : 'Nouveau message');
                 
@@ -278,7 +271,6 @@ const Discussion = {
                 });
             }
             
-            // Mampivily ny tab raha tsy misy olona mijery
             if (document.hidden) {
                 document.title = '🔔 ' + (this.originalTitle || 'Studio Graphique');
                 setTimeout(() => {
@@ -295,9 +287,17 @@ const Discussion = {
             this.lastMessageId = lastMessage.id;
         }
         
-        // Miverina any ambany raha vao nandefa message na efa teo ambany
-        if (isScrolledToBottom || (messages.length > 0 && messages[messages.length - 1].expediteur === (this.currentUser?.username || this.currentUser?.name))) {
-            container.scrollTop = container.scrollHeight;
+        // 🔄 Miverina any ambany amin'ny tranga roa:
+        // 1. Raha teo ambany ny scroll taloha
+        // 2. Raha ny tena nandefa ny message farany (ny tena no nandefa)
+        const shouldScrollToBottom = wasAtBottom || 
+            (messages.length > 0 && messages[messages.length - 1].expediteur === (this.currentUser?.username || this.currentUser?.name));
+        
+        if (shouldScrollToBottom) {
+            // Mila miandry kely mba hahavita ny rendring
+            setTimeout(() => {
+                container.scrollTop = container.scrollHeight;
+            }, 50);
         }
     },
     
@@ -321,7 +321,6 @@ const Discussion = {
             message: message || ''
         };
         
-        // Handle file if present
         if (fileInput && fileInput.files[0]) {
             const file = fileInput.files[0];
             const allowedTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/svg+xml'];
@@ -355,7 +354,6 @@ const Discussion = {
         try {
             await Storage.ajouterMessage(messageData);
             
-            // Clear inputs
             const messageInput = document.getElementById('messageInput');
             if (messageInput) messageInput.value = '';
             const fileInput = document.getElementById('fileInput');
